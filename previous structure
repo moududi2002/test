@@ -1,0 +1,1718 @@
+// ============================================================
+// Path: apps/api/prisma/schema.prisma
+// ============================================================
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+
+
+// ============================================================
+// ENUMS
+// ============================================================
+
+enum UserRole {
+  STUDENT
+}
+
+enum StudyMood {
+  HAPPY
+  NEUTRAL
+  SAD
+}
+
+enum GoalType {
+  DAILY
+  WEEKLY
+  MONTHLY
+}
+
+enum BadgeCode {
+  FIRST_STUDY_ENTRY
+  SEVEN_DAY_STREAK
+  THIRTY_DAY_STREAK
+  HUNDRED_HOURS
+  MATH_HERO
+  SCIENCE_EXPLORER
+  CONSISTENCY_CHAMPION
+  CHAPTER_FINISHER
+  EARLY_BIRD
+  NIGHT_OWL
+}
+
+// ============================================================
+// USER
+// ============================================================
+
+model User {
+  id              String    @id @default(cuid())
+  email           String    @unique
+  username        String    @unique
+  fullName        String
+  passwordHash    String
+  classLevel      Int
+  avatarUrl       String?
+  role            UserRole  @default(STUDENT)
+
+  xp              Int       @default(0)
+  level           Int       @default(1)
+  currentStreak   Int       @default(0)
+  longestStreak   Int       @default(0)
+  lastStudyDate   DateTime? @db.Date
+
+  isEmailVerified Boolean   @default(false)
+  isActive        Boolean   @default(true)
+  isProfilePublic Boolean   @default(true)
+
+  googleId        String?   @unique
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  // Relations
+  subjects        Subject[]
+  studyEntries    StudyEntry[]
+  goals           Goal[]
+  badges          UserBadge[]
+  otpTokens       OtpToken[]
+  refreshTokens   RefreshToken[]
+  diaries         StudyDiary[]
+
+  // === NEW relations (Step 19) ===
+  ownedGroups             Group[]                    @relation("GroupOwner")
+  groupMemberships        GroupMember[]
+  sentInvitations         GroupInvitation[]          @relation("Inviter")
+  receivedInvitations     GroupInvitation[]          @relation("Invitee")
+  notifications           Notification[]
+  conversationParticipants ConversationParticipant[]
+  messages                Message[]
+
+  @@index([email])
+  @@index([username])
+}
+
+// ============================================================
+// OTP TOKEN (Email verification + Password reset)
+// ============================================================
+
+enum OtpPurpose {
+  EMAIL_VERIFICATION
+  PASSWORD_RESET
+}
+
+model OtpToken {
+  id        String     @id @default(cuid())
+  userId    String
+  code      String
+  purpose   OtpPurpose
+  expiresAt DateTime
+  consumed  Boolean    @default(false)
+  createdAt DateTime   @default(now())
+
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, purpose])
+  @@index([code])
+}
+
+// ============================================================
+// REFRESH TOKEN (Device session management)
+// ============================================================
+
+model RefreshToken {
+  id         String   @id @default(cuid())
+  userId     String
+  tokenHash  String   @unique
+  userAgent  String?
+  ipAddress  String?
+  rememberMe Boolean  @default(false)
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  createdAt  DateTime @default(now())
+
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// ============================================================
+// SUBJECT
+// ============================================================
+
+model Subject {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  color     String   @default("#A78BFA")
+  icon      String   @default("📚")
+  isCustom  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  studyEntries StudyEntry[]
+  goals        Goal[]
+
+  @@unique([userId, name])
+  @@index([userId])
+}
+
+// ============================================================
+// STUDY ENTRY (Daily study log)
+// ============================================================
+
+model StudyEntry {
+  id              String    @id @default(cuid())
+  userId          String
+  subjectId       String
+  date            DateTime  @db.Date
+  durationMinutes Int
+  chapter         String?
+  note            String?   @db.Text
+  mood            StudyMood @default(NEUTRAL)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subject Subject @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+
+  @@index([userId, date])
+  @@index([userId, subjectId])
+  @@index([subjectId])
+}
+
+// ============================================================
+// GOAL
+// ============================================================
+
+model Goal {
+  id             String   @id @default(cuid())
+  userId         String
+  subjectId      String?
+  title          String
+  type           GoalType
+  targetMinutes  Int?
+  targetChapters Int?
+  progressValue  Int      @default(0)
+  isCompleted    Boolean  @default(false)
+  startsAt       DateTime @db.Date
+  endsAt         DateTime @db.Date
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subject Subject? @relation(fields: [subjectId], references: [id], onDelete: SetNull)
+
+  @@index([userId, type])
+  @@index([userId, startsAt, endsAt])
+}
+
+// ============================================================
+// BADGE
+// ============================================================
+
+model UserBadge {
+  id       String    @id @default(cuid())
+  userId   String
+  code     BadgeCode
+  earnedAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, code])
+  @@index([userId])
+}
+
+// ============================================================
+// STUDY DIARY (Personal notes / feelings)
+// ============================================================
+
+model StudyDiary {
+  id        String    @id @default(cuid())
+  userId    String
+  date      DateTime  @db.Date
+  content   String    @db.Text
+  mood      StudyMood @default(NEUTRAL)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, date])
+  @@index([userId])
+}
+
+// ============================================================
+// Path: apps/api/prisma/schema.prisma
+// (existing schema এর শেষে যোগ করো — existing models/types মুছবে না)
+// ============================================================
+
+// ============================================================
+// ENUMS (new)
+// ============================================================
+
+enum GroupRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  CANCELLED
+}
+
+enum NotificationType {
+  GROUP_INVITATION
+  GROUP_INVITATION_ACCEPTED
+  GROUP_JOINED
+  GROUP_LEFT
+  GROUP_MESSAGE
+  PERSONAL_MESSAGE
+  GROUP_TARGET_COMPLETED
+  GROUP_MEMBER_MILESTONE
+  BADGE_EARNED
+}
+
+enum MessageType {
+  TEXT
+  IMAGE
+}
+
+// ============================================================
+// GROUP
+// ============================================================
+
+model Group {
+  id          String   @id @default(cuid())
+  name        String
+  description String?  @db.Text
+  imageUrl    String?
+  ownerId     String
+  isMuted     Boolean  @default(false) // owner global mute flag (optional use)
+
+  // Group-wide study target (optional)
+  weeklyTargetMinutes Int?
+  weeklyTargetChapters Int?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  owner       User               @relation("GroupOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  members     GroupMember[]
+  invitations GroupInvitation[]
+  conversation Conversation?
+
+  @@index([ownerId])
+}
+
+// ============================================================
+// GROUP MEMBER
+// ============================================================
+
+model GroupMember {
+  id        String    @id @default(cuid())
+  groupId   String
+  userId    String
+  role      GroupRole @default(MEMBER)
+  isMuted   Boolean   @default(false) // user-level mute in this group
+  joinedAt  DateTime  @default(now())
+
+  group     Group     @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, userId])
+  @@index([groupId])
+  @@index([userId])
+}
+
+// ============================================================
+// GROUP INVITATION
+// ============================================================
+
+model GroupInvitation {
+  id          String           @id @default(cuid())
+  groupId     String
+  inviterId   String
+  inviteeId   String
+  status      InvitationStatus @default(PENDING)
+  message     String?          @db.Text
+  respondedAt DateTime?
+  createdAt   DateTime         @default(now())
+  expiresAt   DateTime
+
+  group       Group            @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  inviter     User             @relation("Inviter", fields: [inviterId], references: [id], onDelete: Cascade)
+  invitee     User             @relation("Invitee", fields: [inviteeId], references: [id], onDelete: Cascade)
+
+  @@index([inviteeId, status])
+  @@index([groupId])
+  @@unique([groupId, inviteeId, status])
+}
+
+// ============================================================
+// NOTIFICATION
+// ============================================================
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  type      NotificationType
+  title     String
+  body      String           @db.Text
+  data      Json?            // extra context: { groupId, invitationId, senderId, conversationId, ... }
+  isRead    Boolean          @default(false)
+  createdAt DateTime         @default(now())
+
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+  @@index([userId, createdAt])
+}
+
+// ============================================================
+// CONVERSATION (1-on-1 or group chat)
+// ============================================================
+
+model Conversation {
+  id        String   @id @default(cuid())
+  // null if personal (1-on-1), set if group chat
+  groupId   String?  @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  group        Group?                     @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  participants ConversationParticipant[]
+  messages     Message[]
+
+  @@index([updatedAt])
+}
+
+// ============================================================
+// CONVERSATION PARTICIPANT
+// ============================================================
+
+model ConversationParticipant {
+  id             String   @id @default(cuid())
+  conversationId String
+  userId         String
+  lastReadAt     DateTime @default(now())
+  createdAt      DateTime @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, userId])
+  @@index([conversationId])
+  @@index([userId])
+}
+
+// ============================================================
+// MESSAGE
+// ============================================================
+
+model Message {
+  id             String       @id @default(cuid())
+  conversationId String
+  senderId       String
+  type           MessageType  @default(TEXT)
+  content        String?      @db.Text   // text content (null if image-only)
+  imageUrl       String?                 // image path
+  createdAt      DateTime     @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender       User         @relation(fields: [senderId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+  @@index([senderId])
+}
+
+
+
+
+// ============================================================
+// Path: apps/api/src/chat/chat.service.ts
+// ============================================================
+
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
+import { MessageType, NotificationType } from '../generated/prisma/client';
+import { promises as fs } from 'fs';
+import { join } from 'path';
+import { MESSAGES } from '../common/messages';
+import { NotificationsService } from '../notifications/notifications.service';
+import { PrismaService } from '../prisma/prisma.service';
+import { QueryMessagesDto, SendMessageDto } from './dto';
+
+const MAX_MESSAGES_PER_CONVERSATION = 100;
+const MESSAGE_TTL_HOURS = 24;
+
+const ALLOWED_IMAGE_MIME = ['image/jpeg', 'image/png', 'image/webp'];
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5MB
+
+@Injectable()
+export class ChatService {
+  private readonly logger = new Logger(ChatService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notifications: NotificationsService,
+  ) {}
+
+  // ----------------------------------------------------------
+  // GET /chat/conversations — my list with last message + unread
+  // ----------------------------------------------------------
+  async listConversations(userId: string) {
+    const participants = await this.prisma.conversationParticipant.findMany({
+      where: { userId },
+      include: {
+        conversation: {
+          include: {
+            group: {
+              select: { id: true, name: true, imageUrl: true },
+            },
+            participants: {
+              include: {
+                user: {
+                  select: { id: true, username: true, fullName: true, avatarUrl: true },
+                },
+              },
+            },
+            messages: {
+              orderBy: { createdAt: 'desc' },
+              take: 1,
+              include: {
+                sender: {
+                  select: { id: true, username: true, fullName: true },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const now = Date.now();
+
+    const items = await Promise.all(
+      participants.map(async (p) => {
+        const conv = p.conversation;
+
+        // Filter out messages older than 24h (they will be cleaned soon)
+        const lastMessage = conv.messages[0];
+        const lastMessageValid =
+          lastMessage && now - lastMessage.createdAt.getTime() < MESSAGE_TTL_HOURS * 3600_000
+            ? lastMessage
+            : null;
+
+        // Unread = messages after lastReadAt, not sent by me, not expired
+        const unreadCount = await this.prisma.message.count({
+          where: {
+            conversationId: conv.id,
+            senderId: { not: userId },
+            createdAt: {
+              gt: p.lastReadAt,
+              gte: new Date(now - MESSAGE_TTL_HOURS * 3600_000),
+            },
+          },
+        });
+
+        const others = conv.participants.filter((x) => x.user.id !== userId);
+        const displayName = conv.group
+          ? conv.group.name
+          : others[0]?.user.fullName ?? 'অজানা';
+        const displayImage = conv.group
+          ? conv.group.imageUrl
+          : others[0]?.user.avatarUrl ?? null;
+
+        return {
+          id: conv.id,
+          isGroup: !!conv.group,
+          groupId: conv.group?.id ?? null,
+          displayName,
+          displayImage,
+          participantCount: conv.participants.length,
+          otherUser: conv.group ? null : others[0]?.user ?? null,
+          lastMessage: lastMessageValid
+            ? {
+                id: lastMessageValid.id,
+                type: lastMessageValid.type,
+                content: lastMessageValid.content,
+                imageUrl: lastMessageValid.imageUrl,
+                senderId: lastMessageValid.senderId,
+                senderName: lastMessageValid.sender.fullName,
+                createdAt: lastMessageValid.createdAt.toISOString(),
+              }
+            : null,
+          unreadCount,
+          updatedAt: conv.updatedAt.toISOString(),
+        };
+      }),
+    );
+
+    // Sort: by last message createdAt desc, else updatedAt desc
+    items.sort((a, b) => {
+      const aTime = a.lastMessage ? new Date(a.lastMessage.createdAt).getTime() : new Date(a.updatedAt).getTime();
+      const bTime = b.lastMessage ? new Date(b.lastMessage.createdAt).getTime() : new Date(b.updatedAt).getTime();
+      return bTime - aTime;
+    });
+
+    return { message: MESSAGES.SUCCESS, data: items };
+  }
+
+  // ----------------------------------------------------------
+  // POST /chat/conversations — create or return existing personal chat
+  // ----------------------------------------------------------
+  async createPersonalConversation(userId: string, otherUserId: string) {
+    if (userId === otherUserId) {
+      throw new BadRequestException('নিজের সাথে চ্যাট করা যাবে না');
+    }
+
+    const other = await this.prisma.user.findUnique({
+      where: { id: otherUserId },
+      select: { id: true, isActive: true, fullName: true },
+    });
+    if (!other || !other.isActive) throw new NotFoundException(MESSAGES.USER_NOT_FOUND);
+
+    // Find existing personal conversation between these two
+    const existing = await this.prisma.conversation.findFirst({
+      where: {
+        groupId: null,
+        AND: [
+          { participants: { some: { userId } } },
+          { participants: { some: { userId: otherUserId } } },
+        ],
+        participants: { every: { userId: { in: [userId, otherUserId] } } },
+      },
+      select: { id: true },
+    });
+    if (existing) {
+      return { message: MESSAGES.SUCCESS, data: { id: existing.id } };
+    }
+
+    const conv = await this.prisma.conversation.create({
+      data: {
+        participants: {
+          create: [{ userId }, { userId: otherUserId }],
+        },
+      },
+    });
+
+    return { message: 'চ্যাট শুরু হয়েছে', data: { id: conv.id } };
+  }
+
+  // ----------------------------------------------------------
+  // GET /chat/conversations/:id — detail
+  // ----------------------------------------------------------
+  async getConversation(userId: string, conversationId: string) {
+    await this.ensureParticipant(userId, conversationId);
+
+    const conv = await this.prisma.conversation.findUnique({
+      where: { id: conversationId },
+      include: {
+        group: { select: { id: true, name: true, imageUrl: true, ownerId: true } },
+        participants: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                username: true,
+                fullName: true,
+                avatarUrl: true,
+                level: true,
+                xp: true,
+              },
+            },
+          },
+        },
+      },
+    });
+    if (!conv) throw new NotFoundException('চ্যাট খুঁজে পাওয়া যায়নি');
+
+    const others = conv.participants.filter((x) => x.user.id !== userId);
+    const displayName = conv.group ? conv.group.name : others[0]?.user.fullName ?? 'অজানা';
+    const displayImage = conv.group
+      ? conv.group.imageUrl
+      : others[0]?.user.avatarUrl ?? null;
+
+    return {
+      message: MESSAGES.SUCCESS,
+      data: {
+        id: conv.id,
+        isGroup: !!conv.group,
+        groupId: conv.group?.id ?? null,
+        displayName,
+        displayImage,
+        participants: conv.participants.map((p) => ({
+          id: p.user.id,
+          username: p.user.username,
+          fullName: p.user.fullName,
+          avatarUrl: p.user.avatarUrl,
+          level: p.user.level,
+          xp: p.user.xp,
+        })),
+      },
+    };
+  }
+
+  // ----------------------------------------------------------
+  // GET /chat/conversations/:id/messages — paginated, TTL-filtered
+  // ----------------------------------------------------------
+  async listMessages(userId: string, conversationId: string, query: QueryMessagesDto) {
+    await this.ensureParticipant(userId, conversationId);
+
+    const limit = query.limit ?? 30;
+    const ttlCutoff = new Date(Date.now() - MESSAGE_TTL_HOURS * 3600_000);
+
+    const messages = await this.prisma.message.findMany({
+      where: {
+        conversationId,
+        createdAt: { gte: ttlCutoff },
+        ...(query.before ? { id: { lt: query.before } } : {}),
+      },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+      include: {
+        sender: {
+          select: { id: true, username: true, fullName: true, avatarUrl: true },
+        },
+      },
+    });
+
+    return {
+      message: MESSAGES.SUCCESS,
+      data: {
+        items: messages.reverse().map((m) => this.serializeMessage(m)),
+        hasMore: messages.length === limit,
+      },
+    };
+  }
+
+  // ----------------------------------------------------------
+  // POST /chat/messages — send (REST fallback for non-socket)
+  // ----------------------------------------------------------
+  async sendMessage(userId: string, dto: SendMessageDto) {
+    await this.ensureParticipant(userId, dto.conversationId);
+
+    if (dto.type === 'TEXT' && !dto.content?.trim()) {
+      throw new BadRequestException('মেসেজ খালি পাঠানো যাবে না');
+    }
+    if (dto.type === 'IMAGE' && !dto.imageUrl) {
+      throw new BadRequestException('ছবি আপলোড করা হয়নি');
+    }
+
+    const message = await this.prisma.message.create({
+      data: {
+        conversationId: dto.conversationId,
+        senderId: userId,
+        type: dto.type as MessageType,
+        content: dto.type === 'TEXT' ? dto.content!.trim() : null,
+        imageUrl: dto.type === 'IMAGE' ? dto.imageUrl! : null,
+      },
+      include: {
+        sender: {
+          select: { id: true, username: true, fullName: true, avatarUrl: true },
+        },
+      },
+    });
+
+    await this.prisma.conversation.update({
+      where: { id: dto.conversationId },
+      data: { updatedAt: new Date() },
+    });
+
+    // Enforce 100-msg cap (delete oldest)
+    await this.enforceMessageCap(dto.conversationId);
+
+    // Notify other participants (excluding muted groups)
+    await this.notifyParticipants(userId, dto.conversationId, message);
+
+    return { message: MESSAGES.SUCCESS, data: this.serializeMessage(message) };
+  }
+
+  // ----------------------------------------------------------
+  // POST /chat/messages/image — upload image
+  // ----------------------------------------------------------
+  async uploadImage(userId: string, file: Express.Multer.File) {
+    if (!file) throw new BadRequestException('ছবি আপলোড করা হয়নি');
+    if (!ALLOWED_IMAGE_MIME.includes(file.mimetype)) {
+      throw new BadRequestException('শুধু JPG, PNG অথবা WEBP');
+    }
+    if (file.size > MAX_IMAGE_BYTES) {
+      throw new BadRequestException('ছবির আকার সর্বোচ্চ ৫ মেগাবাইট');
+    }
+
+    const ext = file.mimetype === 'image/png' ? 'png' : file.mimetype === 'image/webp' ? 'webp' : 'jpg';
+    const dir = join(process.cwd(), 'uploads', 'chat');
+    await fs.mkdir(dir, { recursive: true });
+
+    const filename = `${userId}-${Date.now()}.${ext}`;
+    const filepath = join(dir, filename);
+    await fs.writeFile(filepath, file.buffer);
+
+    return {
+      message: 'ছবি আপলোড হয়েছে',
+      data: { imageUrl: `/uploads/chat/${filename}` },
+    };
+  }
+
+  // ----------------------------------------------------------
+  // DELETE /chat/messages/:id
+  // ----------------------------------------------------------
+  async deleteMessage(userId: string, messageId: string) {
+    const msg = await this.prisma.message.findUnique({
+      where: { id: messageId },
+      select: { id: true, senderId: true, conversationId: true, imageUrl: true },
+    });
+    if (!msg) throw new NotFoundException('মেসেজ খুঁজে পাওয়া যায়নি');
+    if (msg.senderId !== userId) throw new ForbiddenException('নিজের মেসেজই মুছতে পারবে');
+
+    await this.prisma.message.delete({ where: { id: messageId } });
+
+    // Delete attached image file (best-effort)
+    if (msg.imageUrl && msg.imageUrl.includes('/uploads/chat/')) {
+      const filename = msg.imageUrl.split('/uploads/chat/')[1];
+      if (filename) {
+        try {
+          await fs.unlink(join(process.cwd(), 'uploads', 'chat', filename));
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+
+    return { message: 'মেসেজ মুছে ফেলা হয়েছে', data: { id: messageId } };
+  }
+
+  // ----------------------------------------------------------
+  // POST /chat/conversations/:id/read — mark all as read
+  // ----------------------------------------------------------
+  async markRead(userId: string, conversationId: string) {
+    await this.ensureParticipant(userId, conversationId);
+    await this.prisma.conversationParticipant.updateMany({
+      where: { conversationId, userId },
+      data: { lastReadAt: new Date() },
+    });
+    return { message: MESSAGES.SUCCESS, data: null };
+  }
+
+  // ----------------------------------------------------------
+  // INTERNAL: enforce 100-msg cap
+  // ----------------------------------------------------------
+  async enforceMessageCap(conversationId: string) {
+    const total = await this.prisma.message.count({ where: { conversationId } });
+    if (total <= MAX_MESSAGES_PER_CONVERSATION) return;
+
+    const excess = total - MAX_MESSAGES_PER_CONVERSATION;
+    const oldest = await this.prisma.message.findMany({
+      where: { conversationId },
+      orderBy: { createdAt: 'asc' },
+      take: excess,
+      select: { id: true, imageUrl: true },
+    });
+
+    await this.prisma.message.deleteMany({
+      where: { id: { in: oldest.map((m) => m.id) } },
+    });
+
+    // Best-effort image cleanup
+    for (const m of oldest) {
+      if (m.imageUrl && m.imageUrl.includes('/uploads/chat/')) {
+        const filename = m.imageUrl.split('/uploads/chat/')[1];
+        if (filename) {
+          try {
+            await fs.unlink(join(process.cwd(), 'uploads', 'chat', filename));
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+    }
+  }
+
+  // ----------------------------------------------------------
+  // INTERNAL: notify participants (respect mute)
+  // ----------------------------------------------------------
+  private async notifyParticipants(senderId: string, conversationId: string, message: any) {
+    const conv = await this.prisma.conversation.findUnique({
+      where: { id: conversationId },
+      include: {
+        group: { select: { id: true, name: true } },
+        participants: { select: { userId: true } },
+      },
+    });
+    if (!conv) return;
+
+    const recipientIds = conv.participants
+      .map((p) => p.userId)
+      .filter((id) => id !== senderId);
+    if (recipientIds.length === 0) return;
+
+    // If group: filter out muted members
+    let filtered = recipientIds;
+    if (conv.group) {
+      const muted = await this.prisma.groupMember.findMany({
+        where: { groupId: conv.group.id, userId: { in: recipientIds }, isMuted: true },
+        select: { userId: true },
+      });
+      const mutedSet = new Set(muted.map((m) => m.userId));
+      filtered = recipientIds.filter((id) => !mutedSet.has(id));
+    }
+    if (filtered.length === 0) return;
+
+    const preview =
+      message.type === 'IMAGE' ? '📷 ছবি পাঠিয়েছে' : (message.content ?? '').slice(0, 80);
+
+    await this.notifications.createMany(filtered, {
+      type: conv.group ? NotificationType.GROUP_MESSAGE : NotificationType.PERSONAL_MESSAGE,
+      title: conv.group ? `${conv.group.name}` : message.sender.fullName,
+      body: preview,
+      data: { conversationId, senderId },
+    });
+  }
+
+  // ----------------------------------------------------------
+  // INTERNAL: participant check
+  // ----------------------------------------------------------
+  async ensureParticipant(userId: string, conversationId: string) {
+    const p = await this.prisma.conversationParticipant.findUnique({
+      where: { conversationId_userId: { conversationId, userId } },
+    });
+    if (!p) throw new ForbiddenException('তুমি এই চ্যাটের সদস্য নও');
+    return p;
+  }
+
+  // ----------------------------------------------------------
+  // INTERNAL: serialize
+  // ----------------------------------------------------------
+  serializeMessage(m: any) {
+    return {
+      id: m.id,
+      conversationId: m.conversationId,
+      senderId: m.senderId,
+      sender: m.sender
+        ? {
+            id: m.sender.id,
+            username: m.sender.username,
+            fullName: m.sender.fullName,
+            avatarUrl: m.sender.avatarUrl,
+          }
+        : undefined,
+      type: m.type,
+      content: m.content,
+      imageUrl: m.imageUrl,
+      createdAt: m.createdAt.toISOString(),
+    };
+  }
+}
+
+
+// ============================================================
+// Path: apps/api/src/chat/chat.controller.ts
+// ============================================================
+
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  Post,
+  Query,
+  UploadedFile,
+  UseInterceptors,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import {
+  ApiBearerAuth,
+  ApiBody,
+  ApiConsumes,
+  ApiOperation,
+  ApiTags,
+} from '@nestjs/swagger';
+import { AuthUser, CurrentUser } from '../common/decorators';
+import { ChatService } from './chat.service';
+import { CreatePersonalConversationDto, QueryMessagesDto, SendMessageDto } from './dto';
+
+@ApiTags('Chat')
+@ApiBearerAuth('access-token')
+@Controller('chat')
+export class ChatController {
+  constructor(private readonly chat: ChatService) {}
+
+  // ----------------------------------------------------------
+  // GET /chat/conversations
+  // ----------------------------------------------------------
+  @Get('conversations')
+  @ApiOperation({ summary: 'আমার সব চ্যাট (last message + unread সহ)' })
+  listConversations(@CurrentUser() user: AuthUser) {
+    return this.chat.listConversations(user.id);
+  }
+
+  // ----------------------------------------------------------
+  // POST /chat/conversations
+  // ----------------------------------------------------------
+  @Post('conversations')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'ব্যক্তিগত চ্যাট শুরু (বা existing ফেরত)' })
+  createPersonal(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: CreatePersonalConversationDto,
+  ) {
+    return this.chat.createPersonalConversation(user.id, dto.userId);
+  }
+
+  // ----------------------------------------------------------
+  // GET /chat/conversations/:id
+  // ----------------------------------------------------------
+  @Get('conversations/:id')
+  @ApiOperation({ summary: 'চ্যাটের বিস্তারিত' })
+  getConversation(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.chat.getConversation(user.id, id);
+  }
+
+  // ----------------------------------------------------------
+  // GET /chat/conversations/:id/messages
+  // ----------------------------------------------------------
+  @Get('conversations/:id/messages')
+  @ApiOperation({ summary: 'মেসেজ লিস্ট (paginated, ২৪ ঘণ্টার ভেতরের)' })
+  listMessages(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Query() query: QueryMessagesDto,
+  ) {
+    return this.chat.listMessages(user.id, id, query);
+  }
+
+  // ----------------------------------------------------------
+  // POST /chat/conversations/:id/read
+  // ----------------------------------------------------------
+  @Post('conversations/:id/read')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'সব পঠিত হিসেবে চিহ্নিত করো' })
+  markRead(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.chat.markRead(user.id, id);
+  }
+
+  // ----------------------------------------------------------
+  // POST /chat/messages
+  // ----------------------------------------------------------
+  @Post('messages')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'মেসেজ পাঠাও (REST fallback)' })
+  sendMessage(@CurrentUser() user: AuthUser, @Body() dto: SendMessageDto) {
+    return this.chat.sendMessage(user.id, dto);
+  }
+
+  // ----------------------------------------------------------
+  // POST /chat/images
+  // ----------------------------------------------------------
+  @Post('images')
+  @HttpCode(HttpStatus.OK)
+  @UseInterceptors(FileInterceptor('file'))
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: { file: { type: 'string', format: 'binary' } },
+      required: ['file'],
+    },
+  })
+  @ApiOperation({ summary: 'চ্যাটের ছবি আপলোড (max 5MB)' })
+  uploadImage(
+    @CurrentUser() user: AuthUser,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    return this.chat.uploadImage(user.id, file);
+  }
+
+  // ----------------------------------------------------------
+  // DELETE /chat/messages/:id
+  // ----------------------------------------------------------
+  @Delete('messages/:id')
+  @ApiOperation({ summary: 'নিজের মেসেজ মুছে ফেলো' })
+  deleteMessage(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.chat.deleteMessage(user.id, id);
+  }
+}
+
+// ============================================================
+// Path: apps/web/src/app/(app)/chat/[conversationId]/page.tsx
+// ============================================================
+
+'use client';
+
+import { useEffect, useRef, useState } from 'react';
+import { useParams, useRouter } from 'next/navigation';
+import { motion, AnimatePresence } from 'framer-motion';
+import {
+  Loader2,
+  Send,
+  Image as ImageIcon,
+  ChevronLeft,
+  Trash2,
+  X,
+  Wifi,
+  WifiOff,
+  Users,
+} from 'lucide-react';
+import { toast } from 'sonner';
+import { api, ApiError, API_URL } from '@/lib/api';
+import { useAuthStore } from '@/lib/stores/auth.store';
+import { useSocket } from '@/lib/hooks/use-socket';
+import { ConversationDetail, Message } from '@/lib/types/chat';
+import { ConversationAvatar, formatChatTime } from '@/components/chat/conversation-avatar';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Button } from '@/components/ui/button';
+import { toBnDigits } from '@/lib/bn';
+import { cn } from '@/lib/utils';
+
+const PRESET_EMOJI: Record<string, string> = {
+  cat_smile: '😺',
+  cat_sleepy: '😴',
+  cat_wink: '😸',
+  cat_reader: '📖',
+  cat_star: '🌟',
+  cat_heart: '💖',
+  bunny_happy: '🐰',
+  bunny_reader: '📚',
+};
+
+export default function ChatRoomPage() {
+  const params = useParams<{ conversationId: string }>();
+  const router = useRouter();
+  const me = useAuthStore((s) => s.user);
+  const { socket, connected } = useSocket();
+
+  const [conversation, setConversation] = useState<ConversationDetail | null>(null);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [text, setText] = useState('');
+  const [sending, setSending] = useState(false);
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const [pendingImage, setPendingImage] = useState<{ url: string; preview: string } | null>(null);
+  const [typingUsers, setTypingUsers] = useState<Record<string, string>>({});
+  const [hasMore, setHasMore] = useState(false);
+
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isTypingRef = useRef(false);
+
+  // Load conversation + messages
+  useEffect(() => {
+    (async () => {
+      try {
+        const [c, m] = await Promise.all([
+          api.get<{ success: true; data: ConversationDetail }>(
+            `/chat/conversations/${params.conversationId}`,
+          ),
+          api.get<{ success: true; data: { items: Message[]; hasMore: boolean } }>(
+            `/chat/conversations/${params.conversationId}/messages?limit=30`,
+          ),
+        ]);
+        setConversation(c.data);
+        setMessages(m.data.items);
+        setHasMore(m.data.hasMore);
+
+        // Mark as read
+        await api.post(`/chat/conversations/${params.conversationId}/read`);
+      } catch (err) {
+        const e = err as ApiError;
+        toast.error(e.message || 'চ্যাট লোড করা যায়নি');
+        router.replace('/chat');
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [params.conversationId, router]);
+
+  // Join room + listeners
+  useEffect(() => {
+    if (!socket || !conversation) return;
+
+    socket.emit('join_conversation', { conversationId: params.conversationId });
+    socket.emit('mark_read', { conversationId: params.conversationId });
+
+    const onNewMessage = (m: Message) => {
+      if (m.conversationId !== params.conversationId) return;
+      setMessages((prev) => {
+        // Remove temp (pending) if same content from me
+        const filtered = prev.filter(
+          (x) => !(x.pending && x.senderId === m.senderId && x.content === m.content),
+        );
+        if (filtered.some((x) => x.id === m.id)) return filtered;
+        return [...filtered, m];
+      });
+      // Mark read if chat open
+      socket.emit('mark_read', { conversationId: params.conversationId });
+      setTimeout(() => scrollToBottom(), 50);
+    };
+
+    const onTyping = (d: { userId: string; username: string }) => {
+      if (d.userId === me?.id) return;
+      setTypingUsers((prev) => ({ ...prev, [d.userId]: d.username }));
+    };
+    const onStopTyping = (d: { userId: string }) => {
+      setTypingUsers((prev) => {
+        const next = { ...prev };
+        delete next[d.userId];
+        return next;
+      });
+    };
+    const onDeleted = (d: { id: string }) => {
+      setMessages((prev) => prev.filter((m) => m.id !== d.id));
+    };
+
+    socket.on('new_message', onNewMessage);
+    socket.on('typing', onTyping);
+    socket.on('stop_typing', onStopTyping);
+    socket.on('message_deleted', onDeleted);
+
+    return () => {
+      socket.emit('leave_conversation', { conversationId: params.conversationId });
+      socket.off('new_message', onNewMessage);
+      socket.off('typing', onTyping);
+      socket.off('stop_typing', onStopTyping);
+      socket.off('message_deleted', onDeleted);
+    };
+  }, [socket, conversation, params.conversationId, me?.id]);
+
+  // Auto-scroll on new messages
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages.length]);
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  // Send text
+  const sendText = async () => {
+    const content = text.trim();
+    if (!content || !socket) return;
+
+    setText('');
+
+    // Optimistic temp message
+    const tempId = `temp-${Date.now()}`;
+    const tempMsg: Message = {
+      id: tempId,
+      conversationId: params.conversationId,
+      senderId: me!.id,
+      sender: {
+        id: me!.id,
+        username: me!.username,
+        fullName: me!.fullName,
+        avatarUrl: me!.avatarUrl,
+      },
+      type: 'TEXT',
+      content,
+      imageUrl: null,
+      createdAt: new Date().toISOString(),
+      pending: true,
+    };
+    setMessages((prev) => [...prev, tempMsg]);
+
+    socket.emit(
+      'send_message',
+      {
+        conversationId: params.conversationId,
+        content,
+        type: 'TEXT',
+      },
+      (ack: any) => {
+        if (!ack?.ok) {
+          setMessages((prev) =>
+            prev.map((m) => (m.id === tempId ? { ...m, pending: false, failed: true } : m)),
+          );
+          toast.error(ack?.error || 'মেসেজ পাঠানো যায়নি');
+        }
+      },
+    );
+
+    // Stop typing on send
+    if (isTypingRef.current) {
+      isTypingRef.current = false;
+      socket.emit('stop_typing', { conversationId: params.conversationId });
+    }
+  };
+
+  // Typing events
+  const onTextChange = (v: string) => {
+    setText(v);
+    if (!socket) return;
+    if (!isTypingRef.current && v.length > 0) {
+      isTypingRef.current = true;
+      socket.emit('typing', { conversationId: params.conversationId });
+    }
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    typingTimeoutRef.current = setTimeout(() => {
+      if (isTypingRef.current) {
+        isTypingRef.current = false;
+        socket.emit('stop_typing', { conversationId: params.conversationId });
+      }
+    }, 1800);
+  };
+
+  // Image upload
+  const pickImage = () => fileInputRef.current?.click();
+
+  const onImageSelected = async (file: File) => {
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('ছবি ৫ মেগাবাইটের কম হতে হবে');
+      return;
+    }
+    setUploadingImage(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await api.upload<{ imageUrl: string }>('/chat/images', fd);
+      setPendingImage({ url: res.data.imageUrl, preview: URL.createObjectURL(file) });
+    } catch (err) {
+      const e = err as ApiError;
+      toast.error(e.message || 'আপলোড ব্যর্থ');
+    } finally {
+      setUploadingImage(false);
+    }
+  };
+
+  const sendImage = () => {
+    if (!socket || !pendingImage) return;
+    const tempId = `temp-${Date.now()}`;
+    const tempMsg: Message = {
+      id: tempId,
+      conversationId: params.conversationId,
+      senderId: me!.id,
+      sender: {
+        id: me!.id,
+        username: me!.username,
+        fullName: me!.fullName,
+        avatarUrl: me!.avatarUrl,
+      },
+      type: 'IMAGE',
+      content: null,
+      imageUrl: pendingImage.url,
+      createdAt: new Date().toISOString(),
+      pending: true,
+    };
+    setMessages((prev) => [...prev, tempMsg]);
+    socket.emit(
+      'send_message',
+      {
+        conversationId: params.conversationId,
+        type: 'IMAGE',
+        imageUrl: pendingImage.url,
+      },
+      (ack: any) => {
+        if (!ack?.ok) {
+          setMessages((prev) =>
+            prev.map((m) => (m.id === tempId ? { ...m, pending: false, failed: true } : m)),
+          );
+          toast.error(ack?.error || 'ছবি পাঠানো যায়নি');
+        }
+      },
+    );
+    setPendingImage(null);
+  };
+
+  // Delete message
+  const deleteMessage = (m: Message) => {
+    if (m.senderId !== me?.id || m.pending || !socket) return;
+    if (!confirm('এই মেসেজ মুছে ফেলবে?')) return;
+    socket.emit('delete_message', {
+      messageId: m.id,
+      conversationId: params.conversationId,
+    });
+  };
+
+  // Load older messages
+  const loadOlder = async () => {
+    if (!messages.length || !hasMore) return;
+    const oldest = messages[0];
+    try {
+      const res = await api.get<{ success: true; data: { items: Message[]; hasMore: boolean } }>(
+        `/chat/conversations/${params.conversationId}/messages?limit=30&before=${oldest.id}`,
+      );
+      setMessages((prev) => [...res.data.items, ...prev]);
+      setHasMore(res.data.hasMore);
+    } catch (err) {
+      const e = err as ApiError;
+      toast.error(e.message || 'লোড করা যায়নি');
+    }
+  };
+
+  if (loading || !conversation) {
+    return (
+      <div className="min-h-[60vh] flex flex-col items-center justify-center gap-3">
+        <motion.div
+          animate={{ y: [0, -8, 0] }}
+          transition={{ duration: 1.6, repeat: Infinity }}
+          className="text-5xl"
+        >
+          💬
+        </motion.div>
+        <div className="flex items-center gap-2 text-primary-500 text-sm">
+          <Loader2 className="animate-spin" size={16} />
+          লোড হচ্ছে...
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col h-[calc(100vh-8rem)] md:h-[calc(100vh-6rem)] -mx-4 md:mx-0">
+      {/* Header */}
+      <div className="card-soft rounded-b-none rounded-t-3xl px-4 py-3 flex items-center gap-3 shadow-soft">
+        <button
+          onClick={() => router.push('/chat')}
+          className="text-primary-500 hover:text-primary-700 p-1"
+        >
+          <ChevronLeft size={20} />
+        </button>
+        <ConversationAvatar
+          name={conversation.displayName}
+          imageUrl={conversation.displayImage}
+          isGroup={conversation.isGroup}
+          size={44}
+        />
+        <div className="flex-1 min-w-0">
+          <p className="font-semibold text-primary-800 truncate">
+            {conversation.displayName}
+          </p>
+          <p className="text-xs text-primary-400 truncate flex items-center gap-1">
+            {connected ? (
+              <>
+                <Wifi size={10} className="text-mint-500" />
+                <span className="text-mint-500">সংযুক্ত</span>
+              </>
+            ) : (
+              <>
+                <WifiOff size={10} className="text-red-500" />
+                <span className="text-red-500">সংযোগ নেই</span>
+              </>
+            )}
+            {conversation.isGroup && (
+              <>
+                · <Users size={10} /> {toBnDigits(conversation.participants.length)}
+              </>
+            )}
+          </p>
+        </div>
+      </div>
+
+      {/* Messages */}
+      <div
+        ref={scrollContainerRef}
+        className="flex-1 overflow-y-auto px-3 md:px-4 py-4 space-y-2 bg-gradient-to-b from-white/50 to-lavender-100/40"
+      >
+        {hasMore && (
+          <div className="text-center pb-2">
+            <button
+              onClick={loadOlder}
+              className="text-xs text-primary-500 hover:text-primary-700 bg-white px-3 py-1.5 rounded-full shadow-soft"
+            >
+              পুরোনো মেসেজ দেখাও
+            </button>
+          </div>
+        )}
+
+        {messages.length === 0 && (
+          <div className="text-center py-8">
+            <div className="text-5xl mb-3">👋</div>
+            <p className="text-sm text-primary-500">
+              এখনো কোনো মেসেজ নেই — প্রথম মেসেজ পাঠাও!
+            </p>
+          </div>
+        )}
+
+        <AnimatePresence initial={false}>
+          {messages.map((m, idx) => {
+            const isMine = m.senderId === me?.id;
+            const prev = messages[idx - 1];
+            const showAvatar =
+              !isMine && (!prev || prev.senderId !== m.senderId);
+
+            const presetEmoji = m.sender.avatarUrl?.startsWith('preset:')
+              ? PRESET_EMOJI[m.sender.avatarUrl.replace('preset:', '')]
+              : null;
+            const fullAvatar =
+              m.sender.avatarUrl && !m.sender.avatarUrl.startsWith('preset:')
+                ? m.sender.avatarUrl.startsWith('http')
+                  ? m.sender.avatarUrl
+                  : `${API_URL.replace('/api/v1', '')}${m.sender.avatarUrl}`
+                : null;
+
+            const imageSrc = m.imageUrl
+              ? m.imageUrl.startsWith('http')
+                ? m.imageUrl
+                : `${API_URL.replace('/api/v1', '')}${m.imageUrl}`
+              : null;
+
+            return (
+              <motion.div
+                key={m.id}
+                initial={{ opacity: 0, y: 4 }}
+                animate={{ opacity: m.failed ? 0.5 : 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.9 }}
+                className={cn('flex gap-2', isMine ? 'justify-end' : 'justify-start')}
+              >
+                {!isMine && (
+                  <div className="w-8 shrink-0">
+                    {showAvatar && (
+                      <Avatar className="h-8 w-8">
+                        {fullAvatar && <AvatarImage src={fullAvatar} />}
+                        <AvatarFallback className="text-sm">
+                          {presetEmoji ?? m.sender.fullName[0]}
+                        </AvatarFallback>
+                      </Avatar>
+                    )}
+                  </div>
+                )}
+
+                <div className={cn('max-w-[75%] md:max-w-[65%] group')}>
+                  {!isMine && showAvatar && conversation.isGroup && (
+                    <p className="text-[10px] text-primary-400 mb-0.5 pl-1">
+                      {m.sender.fullName}
+                    </p>
+                  )}
+                  <div
+                    className={cn(
+                      'rounded-2xl shadow-soft overflow-hidden',
+                      m.type === 'IMAGE' ? 'p-1' : 'px-3.5 py-2',
+                      isMine
+                        ? 'bg-gradient-to-br from-primary-500 to-pink-soft-400 text-white rounded-br-sm'
+                        : 'bg-white text-primary-800 rounded-bl-sm',
+                    )}
+                  >
+                    {m.type === 'TEXT' ? (
+                      <p className="text-sm whitespace-pre-wrap break-words">
+                        {m.content}
+                      </p>
+                    ) : imageSrc ? (
+                      <img
+                        src={imageSrc}
+                        alt="ছবি"
+                        className="rounded-xl max-w-[240px] md:max-w-[300px] max-h-[320px] object-cover"
+                      />
+                    ) : null}
+                  </div>
+                  <div
+                    className={cn(
+                      'flex items-center gap-1 mt-0.5 text-[10px] text-primary-400',
+                      isMine ? 'justify-end pr-1' : 'pl-1',
+                    )}
+                  >
+                    <span>{formatChatTime(m.createdAt)}</span>
+                    {m.pending && <span>· পাঠানো হচ্ছে...</span>}
+                    {m.failed && <span className="text-red-500">· ব্যর্থ</span>}
+                    {isMine && !m.pending && !m.failed && (
+                      <button
+                        onClick={() => deleteMessage(m)}
+                        className="opacity-0 group-hover:opacity-100 transition-opacity text-primary-400 hover:text-red-500 ml-1"
+                        title="মুছে ফেলো"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </motion.div>
+            );
+          })}
+        </AnimatePresence>
+
+        {/* Typing indicator */}
+        {Object.keys(typingUsers).length > 0 && (
+          <div className="flex items-center gap-2 pt-2">
+            <div className="bg-white rounded-2xl px-3 py-2 shadow-soft flex items-center gap-1">
+              <span className="h-2 w-2 bg-primary-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+              <span className="h-2 w-2 bg-primary-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+              <span className="h-2 w-2 bg-primary-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+            </div>
+            <span className="text-xs text-primary-400 italic">
+              {Object.values(typingUsers).slice(0, 2).join(', ')} টাইপ করছে...
+            </span>
+          </div>
+        )}
+
+        <div ref={messagesEndRef} />
+      </div>
+
+      {/* Image preview */}
+      <AnimatePresence>
+        {pendingImage && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 10 }}
+            className="px-4 pb-2 bg-white border-t border-lavender-200"
+          >
+            <div className="flex items-center gap-3 py-2">
+              <img
+                src={pendingImage.preview}
+                alt="preview"
+                className="h-16 w-16 rounded-xl object-cover ring-2 ring-lavender-200"
+              />
+              <div className="flex-1">
+                <p className="text-sm text-primary-700">ছবি পাঠাতে প্রস্তুত</p>
+                <p className="text-xs text-primary-400">
+                  পাঠাতে "পাঠাও" চাপো, অথবা বাতিল করো
+                </p>
+              </div>
+              <Button size="sm" variant="soft" onClick={() => setPendingImage(null)}>
+                <X size={14} />
+              </Button>
+              <Button size="sm" onClick={sendImage}>
+                <Send size={14} />
+              </Button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Input */}
+      <div className="bg-white border-t border-lavender-200 px-3 md:px-4 py-3 rounded-b-3xl">
+        <div className="flex items-end gap-2">
+          <button
+            onClick={pickImage}
+            disabled={uploadingImage}
+            className="h-11 w-11 shrink-0 rounded-2xl bg-lavender-100 text-primary-500 flex items-center justify-center hover:bg-lavender-200 transition-colors disabled:opacity-50"
+            title="ছবি পাঠাও"
+          >
+            {uploadingImage ? (
+              <Loader2 size={18} className="animate-spin" />
+            ) : (
+              <ImageIcon size={18} />
+            )}
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) onImageSelected(f);
+              e.target.value = '';
+            }}
+          />
+          <div className="flex-1">
+            <textarea
+              value={text}
+              onChange={(e) => onTextChange(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  sendText();
+                }
+              }}
+              placeholder="মেসেজ লেখো..."
+              rows={1}
+              maxLength={2000}
+              className="w-full resize-none rounded-2xl border border-primary-200 bg-white px-4 py-2.5 outline-none focus:border-primary-400 focus:ring-2 focus:ring-lavender-200 text-primary-900 placeholder:text-primary-300 text-sm"
+              style={{ maxHeight: 120 }}
+            />
+          </div>
+          <button
+            onClick={sendText}
+            disabled={!text.trim() || sending || !connected}
+            className="h-11 w-11 shrink-0 rounded-2xl bg-gradient-to-br from-primary-500 to-pink-soft-400 text-white flex items-center justify-center disabled:opacity-40 hover:scale-105 transition-transform"
+          >
+            <Send size={18} />
+          </button>
+        </div>
+        <p className="text-[10px] text-primary-400 mt-1.5 text-center">
+          💡 সর্বোচ্চ ১০০ মেসেজ · ২৪ ঘণ্টা পর অটো মুছে যায়
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// Path: apps/api/src/main.ts
+// ============================================================
+
+import { NestFactory, Reflector } from '@nestjs/core';
+import { ValidationPipe, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { NestExpressApplication } from '@nestjs/platform-express';
+import { join } from 'path';
+import cookieParser from 'cookie-parser';
+import { AppModule } from './app.module';
+import { ResponseInterceptor } from './common/interceptors/response.interceptor';
+import { AllExceptionsFilter } from './common/filters/http-exception.filter';
+import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
+
+async function bootstrap() {
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  const config = app.get(ConfigService);
+  const reflector = app.get(Reflector);
+
+  const port = config.get<number>('PORT', 4000);
+  const apiPrefix = config.get<string>('API_PREFIX', 'api/v1');
+  const corsOrigin = config.get<string>('CORS_ORIGIN', 'http://localhost:3000');
+
+  app.setGlobalPrefix(apiPrefix);
+  app.use(cookieParser());
+  app.enableCors({
+    origin: corsOrigin.split(',').map((o) => o.trim()),
+    credentials: true,
+  });
+
+  // Serve uploaded files (avatars) at /uploads/*
+  app.useStaticAssets(join(process.cwd(), 'uploads'), {
+    prefix: '/uploads/',
+  });
+
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
+      transformOptions: { enableImplicitConversion: true },
+    }),
+  );
+
+  app.useGlobalFilters(new AllExceptionsFilter());
+  app.useGlobalInterceptors(new ResponseInterceptor());
+  app.useGlobalGuards(new JwtAuthGuard(reflector));
+
+  const swaggerConfig = new DocumentBuilder()
+    .setTitle('Study Buddy API')
+    .setDescription('শিক্ষার্থীদের পড়াশোনার সঙ্গী - Backend API')
+    .setVersion('1.0.0')
+    .addBearerAuth(
+      { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
+      'access-token',
+    )
+    .build();
+  const document = SwaggerModule.createDocument(app, swaggerConfig);
+  SwaggerModule.setup('api/docs', app, document);
+
+  await app.listen(port, '0.0.0.0');
+  Logger.log(`🐱 Study Buddy API running on http://0.0.0.0:${port}/${apiPrefix}`, 'Bootstrap');
+  Logger.log(`📚 Swagger docs at http://0.0.0.0:${port}/api/docs`, 'Bootstrap');
+  Logger.log(`🖼️  Static uploads at http://0.0.0.0:${port}/uploads/`, 'Bootstrap');
+}
+
+bootstrap();
+
